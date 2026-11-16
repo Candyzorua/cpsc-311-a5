@@ -355,8 +355,7 @@
 (define-syntax let/eff
   (syntax-rules ()
     [(_ ([x c1]) c2)
-     #f]))
-
+     (flat-map (lambda (x) c2) c1)]))
 
 ;; Compose many computations
 (define-syntax let/eff*
