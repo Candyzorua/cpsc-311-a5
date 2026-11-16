@@ -12,9 +12,9 @@
 ;; Due:      Friday, November 20, 2026 10pm (late deadline Nov. 22 10pm)
 
 ;; Student 1;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Name:
-;; Student Number:
-;; CWL:
+;; Name: Jiaying Ong
+;; Student Number: 83656967
+;; CWL: jong01
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Student 2;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Name:
@@ -359,26 +359,29 @@
             (value->apply-fun rator (lambda (x body env) (recur body (extend-env env x rand)))))
           ;; NDFWAE Env -> Computation
           (define (recur f env)
-            (type-case NDFWAE
-                       f
-                       [num (n) (return/eff (numV n))]
-                       [add (l r) (add-values (recur l env) (recur r env))]
-                       [sub (l r) (sub-values (recur l env) (recur r env))]
-                       [with
-                        (x named body)
-                        (let/eff ([named-comp (recur named env)])
-                                 (recur body (extend-env env x named-comp)))]
-                       [id (x) (return/eff (lookup-env env x))]
-                       [fun (x body) (return/eff (funV x body env))]
-                       [app (rator rand) (apply-value (recur rator env) (recur rand env))]
-                       [if0
-                        (p c a)
-                        (let/eff ([p-comp (recur p env)])
-                                 (if (zero? (value->num p-comp))
-                                     (recur c env)
-                                     (recur a env)))]
-                       [choice (lhs rhs) (choice/eff (recur lhs env) (recur rhs env))]
-                       [ignore () (fail/eff)]))]
+            (type-case
+             NDFWAE
+             f
+             [num (n) (return/eff (numV n))]
+             [add (l r) (let/eff* ([lv (recur l env)] [rv (recur r env)]) (add-values lv rv))]
+             [sub (l r) (let/eff* ([lv (recur l env)] [rv (recur r env)]) (sub-values lv rv))]
+             [with
+              (x named body)
+              (let/eff ([named-comp (recur named env)]) (recur body (extend-env env x named-comp)))]
+             [id (x) (return/eff (lookup-env env x))]
+             [fun (x body) (return/eff (funV x body env))]
+             [app
+              (rator rand)
+              (let/eff* ([ratorv (recur rator env)] [randv (recur rand env)])
+                        (apply-value ratorv randv))]
+             [if0
+              (p c a)
+              (let/eff ([p-comp (recur p env)])
+                       (if (zero? (value->num p-comp))
+                           (recur c env)
+                           (recur a env)))]
+             [choice (lhs rhs) (choice/eff (recur lhs env) (recur rhs env))]
+             [ignore () (fail/eff)]))]
          (run/eff (recur ndfwae empty-env))))
 
 (check-equal? (interp-ndfwae AE1) (list (numV 1)))
@@ -387,3 +390,40 @@
 (check-equal? (interp-ndfwae NDFWAE2) (list (numV 0) (numV 1)))
 
 ;; add more tests!
+
+;; let/eff
+(check-equal? (let/eff ([x (choice/eff (return/eff (numV 1)) (return/eff (numV 2)))])
+                       (return/eff (numV (+ (value->num x) 10))))
+              (list (numV 11) (numV 12)))
+(check-equal? (let/eff ([x (fail/eff)]) (error "should not run")) empty)
+(check-equal? (let/eff* () (return/eff (numV 5))) (list (numV 5)))
+(check-equal? (let/eff* ([x (return/eff (numV 3))] [y (return/eff x)]) (return/eff y))
+              (list (numV 3)))
+
+(check-equal? (interp-ndfwae (add (num 3) (num 4))) (list (numV 7)))
+(check-equal? (interp-ndfwae (sub (num 3) (num 4))) (list (numV -1)))
+(check-equal? (interp-ndfwae (with 'x (num 3) (id 'x))) (list (numV 3)))
+(check-equal? (interp-ndfwae (with 'x (num 3) (with 'x (num 8) (id 'x)))) (list (numV 8)))
+(check-equal? (interp-ndfwae (fun 'x (id 'x))) (list (funV 'x (id 'x) empty-env)))
+(check-equal? (interp-ndfwae (app (fun 'x (id 'x)) (num 7))) (list (numV 7)))
+(check-equal? (interp-ndfwae (if0 (num 0) (num 7) (id 'missing))) (list (numV 7)))
+
+;; Multiple and ignored outcomes
+(check-equal? (interp-ndfwae (ignore)) empty)
+(check-equal? (interp-ndfwae (choice (num 1) (num 1))) (list (numV 1) (numV 1)))
+(check-equal? (interp-ndfwae (choice (ignore) (num 2))) (list (numV 2)))
+(check-equal? (interp-ndfwae (add (choice (num 1) (num 2)) (choice (num 10) (num 20))))
+              (list (numV 11) (numV 21) (numV 12) (numV 22)))
+(check-equal? (interp-ndfwae (with 'x (choice (num 1) (num 2)) (add (id 'x) (id 'x))))
+              (list (numV 2) (numV 4)))
+(check-equal? (interp-ndfwae (app (fun 'x (id 'x)) (choice (num 1) (num 2))))
+              (list (numV 1) (numV 2)))
+(check-equal? (interp-ndfwae (with 'x (ignore) (id 'missing))) empty)
+
+;; Runtime errors
+(check-exn #rx"unbound identifier" (lambda () (interp-ndfwae (id 'missing))))
+(check-exn #rx"Expected a number" (lambda () (interp-ndfwae (add (fun 'x (id 'x)) (num 1)))))
+(check-exn #rx"Expected a number" (lambda () (interp-ndfwae (sub (num 1) (fun 'x (id 'x))))))
+(check-exn #rx"Expected a function" (lambda () (interp-ndfwae (app (num 1) (num 2)))))
+(check-exn #rx"Expected a number" (lambda () (interp-ndfwae (if0 (fun 'x (id 'x)) (num 1) (num 2)))))
+(check-exn #rx"unbound identifier" (lambda () (interp-ndfwae (choice (num 1) (id 'missing)))))
