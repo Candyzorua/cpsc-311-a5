@@ -70,6 +70,8 @@
                        (sleep 2)
                        (display "stopping\n")
                        9))
+;; jiaying: doesn't work because racket evaluates function arguments 
+;; before entering the function body
 
 ;; Okay, we need to delay evaluation. Well, we could require the user to provide
 ;; a "thunk" (zero-argument function)
@@ -118,6 +120,7 @@
   (syntax-rules ()
     [(_ ([x* e*] ...) e)
      ((lambda (x* ...) e) e* ...)]))
+;; jiaying: [x* e*] ... means “0 or more repetitions of name-expr pairs"
 
 ;; The Racket expression
 #;
@@ -136,17 +139,22 @@
 ;; Introduce a macro called my-with*, implemented in terms of my-with, that does
 ;; the same thing. (Uncomment the definition and the tests as you design it!)
 ;; Type: (my-with* ([Symbol Any] ...) Any2) -> Any2
-#;(define-syntax my-with*
-    (syntax-rules ()
-      (...))) ;; stub
+(define-syntax my-with*
+  (syntax-rules ()
+    [(_ () e) ;; base case
+     e]
+    [(_ ([x e1] [x* e*] ...) e)
+     (my-with ([x e1])
+       (my-with* ([x* e*] ...) e))]))
+
 
 ;; It *is* actually possible to directly test the syntax manipulations;
 ;; however, we will (as usual) test behaviour instead.
-;(check-equal? (my-with* () 9) 9)
-;(check-equal? (my-with* ([x 8]) 9) 9)
-;(check-equal? (my-with* ([x 8]) x) 8)
-;(check-equal? (my-with* ([x 8] [y 9]) (+ x y)) 17)
-;(check-equal? (my-with* ([x 8] [y (+ x 1)]) (+ x y)) 17)
+(check-equal? (my-with* () 9) 9)
+(check-equal? (my-with* ([x 8]) 9) 9)
+(check-equal? (my-with* ([x 8]) x) 8)
+(check-equal? (my-with* ([x 8] [y 9]) (+ x y)) 17)
+(check-equal? (my-with* ([x 8] [y (+ x 1)]) (+ x y)) 17)
 
 
 
